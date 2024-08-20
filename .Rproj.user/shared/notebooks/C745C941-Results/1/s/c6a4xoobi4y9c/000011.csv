@@ -1,0 +1,6 @@
+"0","# Plot the model 
+p_main <- plot_do_f_HDI(model_res = model_1_res)
+"
+"2","Warning: [38;5;255mIgnoring unknown parameters: `fatten`[39m"
+"2","Warning: [38;5;255mIgnoring unknown parameters: `fatten`[39m"
+"2","Warning: [38;5;255mIgnoring unknown parameters: `fatten`[39m"

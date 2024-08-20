@@ -1,0 +1,4 @@
+"0","### Examine the precision and variance"
+"0","# Precision"
+"0","prec_1 <- Global_model_1$summary.hyperpar"
+"0","round(prec_1, 3)"

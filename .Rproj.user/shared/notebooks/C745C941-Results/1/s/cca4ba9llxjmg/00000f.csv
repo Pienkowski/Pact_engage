@@ -1,0 +1,7 @@
+"0","# Save
+ggsave(""Fig_SI_1.png"", plot = p_comb_2,
+       width = 8, height = 8, dpi = 500,
+       bg = ""white"")
+"
+"2","Error: object 'p_comb_2' not found
+"

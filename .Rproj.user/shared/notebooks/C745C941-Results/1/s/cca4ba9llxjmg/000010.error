@@ -1,0 +1,1 @@
+{"frames":[{"func":"ggsave(\"Fig_SI_1.png\", plot = p_comb_2, width = 8, height = 8, \n    dpi = 500, bg = \"white\")","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0},{"func":"grid.draw(plot)","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0}],"message":"Error: object 'p_comb_2' not found\n"}

@@ -1,0 +1,220 @@
+"0","### Function that splits by group ###
+split_group <- function(df, group_column) {
+  stopifnot(group_column %in% colnames(df))
+  split(df, df[[group_column]])
+}
+
+### Function to check and modify the matrix ###
+check_and_modify_matrix <- function(mat) {
+  if (is.matrix(mat) && all(dim(mat) == c(2, 2))) {
+    return(mat)
+  } else {
+    extra_column <- matrix(0, nrow = nrow(mat), ncol = 1)
+    modified_matrix <- cbind(mat, extra_column)
+    colnames(modified_matrix)[ncol(modified_matrix)] <- ""1""
+    return(modified_matrix)
+  }
+}
+
+### K-fold block cross-validation function ###
+# Blocking by municipality
+# Following https://medium.com/@aspengulley/write-an-r-function-to-implement-k-fold-cross-validation-ff9d92e97ce3
+CV_func_block <- function(dats, n.folds) {
+  # Splits data frame
+  dats_split <- split_group(dats, ""ADM2_cd"")
+
+  # Objects for storing folds and results
+  folds <- list()
+  results <- list()
+
+  # Define fold sizes
+  fold.size <- length(dats_split) / n.folds
+  remain <- 1:length(dats_split)
+
+  # Randomly sample “fold_size” from remain
+  for (i in 1:n.folds) {
+    select <- sample(remain, fold.size, replace = FALSE)
+    folds[[i]] <- select # store indices
+    # Write a special statement for the last fold — if there are ‘leftover points’
+    if (i == n.folds) {
+      folds[[i]] <- remain
+    }
+
+    # update remaining indices to reflect what was taken out
+    remain <- setdiff(remain, select)
+  }
+
+  # Run the model for the folds
+  for (i in 1:n.folds) {
+    # fold i
+    indis <- folds[[i]] # unpack into a vector
+
+    # split into train and test sets based on municipality block
+    train_lst <- dats_split[-c(indis)]
+    test_lst <- dats_split[c(indis)]
+
+    # Combine the data in the training and test municipalities into two datasets
+    train <- do.call(rbind, train_lst)
+    test <- do.call(rbind, test_lst)
+
+    # Store the true observations in the test data
+    test_org <- test
+
+    # Identify training and test data
+    train$Fit <- ""Fit""
+    test$Fit <- ""Predict""
+
+    # Convert values to NA in the test data
+    test$PCT_01  <- NA
+
+    # Combine the train and test (as required to make predictions in INLA)
+    data_combined <- rbind(train, test)
+
+    # Rerun INLA - following https://www.r-inla.org/faq#h.821k2r53fvx3
+    inla_model <-
+      inla(
+        PCT_01 ~ fm_vh_m_cat + cat_nh_m_level + For_p_10_level + Wat_01 + Defor_ss   + Elev_01 + Elev_sd_level + Slope_01 +
+                       Rd_dis_level + Trl_time_level + For_pract_level + Pop_den_level + HDI_I_ss + Ill_rate_level + Votes_ss + NGO_p + Ag_ass + f(ADM2_cd, model = ""iid""),
+        control.compute = list(dic = TRUE, waic = TRUE),
+        control.predictor = list(link = 1, compute = T),
+        family = ""binomial"",
+        data = data_combined)
+
+    # Extract the fitted values
+    data_combined$Fit_val <- inla_model$summary.fitted.values[, ""mean""]
+
+    # The fitted values for the predicted data
+    pred <- data_combined[which(data_combined$Fit ==  ""Predict""), ]$Fit_val
+
+    # Calculate the accuracy - following https://remiller1450.github.io/s230f19/caret2.html
+    pred_cat <- ifelse(pred > .5, 1, 0)
+
+    # Confusion matrix
+    confusion_matrix <- table(Actual = test_org$PCT_01, Predicted = pred_cat)
+    overall_accuracy <- sum(test_org$PCT_01 == pred_cat) / length(test_org$PCT_01)
+    results[[i]] <- list(confusion_matrix, overall_accuracy)
+  }
+  return(results)
+}
+
+### Calculate the overall accruacy and accuracy for correctly predicting 1's
+cv_result_fun <- function(DF) {
+  # Run the CV
+  cv_out <- CV_func_block(DF, 10) # 10-folds
+
+  # Average CV
+  average_accuracy <- mean(do.call(rbind, lapply(cv_out, function(x) (x[[2]]))))*100
+
+  # How accurately do we predict the occurrence of 1's
+  result <- list()
+  for (i in seq_along(1:length(cv_out))) {
+    result_temp <- cv_out[[i]][[1]]
+    result[[i]] <- result_temp[4] / (result_temp[4] + result_temp[2])
+    result[[i]] <- result[[i]] * 100
+  }
+
+  # Average accuracy at predicting 1's
+  average_one_accuracy <- mean(do.call(rbind, result))
+
+  # output
+  output <- data.frame(av_acc = average_accuracy, av_1_acc = average_one_accuracy)
+  return(output)
+}
+
+### Run both functions ###
+# Number of ratios
+runs <- 10
+
+# Calculating equal ratio jumps
+prop <- prop.table(table(Farm_rest$PCT_01))
+muliples <- floor(prop[1]/ prop[2])
+rat_seqs <- round(c(seq(1,9,1), seq(10, muliples, muliples/(runs-1)), muliples))
+
+### Run the cv model across all ratio datasets (with a trycatch) ###
+acc_lst  <- list()
+for (i in seq_along(1:length(rat_seqs))) {
+  print(i)
+
+  tryCatch({
+    temp_df <- rand_sub_fun(Farm_rest, rat_seqs[[i]])
+    acc_lst[[i]] <- cv_result_fun(temp_df)
+  }, error = function(e) {
+    # Handle the error, you can print a message or take other actions
+    cat(""Error in iteration"", i, "":"", conditionMessage(e), ""\n"")
+    # Move to the next iteration
+    next
+  })
+}
+"
+"1","[1]"
+"1"," 1"
+"1","
+"
+"1","[1]"
+"1"," 2"
+"1","
+"
+"1","[1]"
+"1"," 3"
+"1","
+"
+"1","[1]"
+"1"," 4"
+"1","
+"
+"1","[1]"
+"1"," 5"
+"1","
+"
+"1","[1]"
+"1"," 6"
+"1","
+"
+"1","[1]"
+"1"," 7"
+"1","
+"
+"1","[1]"
+"1"," 8"
+"1","
+"
+"1","[1]"
+"1"," 9"
+"1","
+"
+"1","[1]"
+"1"," 10"
+"1","
+"
+"1","[1]"
+"1"," 11"
+"1","
+"
+"1","[1]"
+"1"," 12"
+"1","
+"
+"1","[1]"
+"1"," 13"
+"1","
+"
+"1","[1]"
+"1"," 14"
+"1","
+"
+"1","[1]"
+"1"," 15"
+"1","
+"
+"1","[1]"
+"1"," 16"
+"1","
+"
+"1","[1]"
+"1"," 17"
+"1","
+"
+"1","[1]"
+"1"," 18"
+"1","
+"

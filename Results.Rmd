@@ -1,0 +1,643 @@
+---
+title: "Pact results document"
+output:
+  word_document:
+    reference_docx: Template.docx
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = T, cache.lazy = FALSE)
+
+### Set seed ###
+set.seed(748)
+options(scipen=999)
+```
+
+```{r, include=F}
+# Load packages
+library(INLA)
+library(INLAutils)
+library(tidyverse)
+library(ggplot2)
+library(INLAutils)
+library(gtsummary)
+
+# Function script 
+source("Functions.R")
+
+# Load data  
+Farm_rest <- readRDS(file = "Farm_rest_1.rds")
+```
+
+# Descriptive statistics #
+
+In this section, we provide descriptive statistics of the variables included in the analysis.
+
+```{r, echo=FALSE, message = FALSE}
+# Setting JAMA theme for gtsummary
+theme_gtsummary_journal("jama")
+theme_gtsummary_compact(set_theme = TRUE, font_size = 10)
+
+# Subset to variables included in descriptive summary below
+table_DF <- Farm_rest %>% select(PCT_01,  fm_vh_m_cat , cat_nh_m_level, For_p_10_level, Wat_01, Defor, FM_class , Elev_01 , Elev_sd_level, Slope_01, Rd_dis_level , Trl_time_level, For_pract_level , Pop_den_level , HDI_I, Ill_rate_level, Votes, NGO_p , Ag_ass ) %>% as.data.frame()
+
+# Convert from proportion to percentage
+table_DF$Defor <- table_DF$Defor*100
+table_DF$Votes <- table_DF$Votes*100
+table_DF$Ag_ass <- table_DF$Ag_ass*100
+
+### Create table
+tab2SDME <-  tbl_summary(table_DF, by = PCT_01, missing_text='Missing',
+                         label = list(fm_vh_m_cat  ~ "Agricultural crop production value (in 2015 R$ per hectare)",
+                                      cat_nh_m_level ~ "Cattle density (in 2015 per hectare)",
+                                      For_p_10_level ~ "Natural forest cover",
+                                      Wat_01 ~ "Waterbody",
+                                      Defor ~ "Net forest cover loss between 1990 and 2010 (percentage of farm area)",
+                                      FM_class ~ "Farm class",
+                                      Elev_01 ~ "Elevation",
+                                      Elev_sd_level ~ "Topographical ruggedness",
+                                      Slope_01 ~ "Steep slope",
+                                      Rd_dis_level ~ "Distance to nearest major road (km)",
+                                      Trl_time_level ~ "Travel time (minutes to urban areas with >50,000 people)",
+                                      For_pract_level ~  "Percentage of farms with forest management practices (in 2017)",
+                                      Pop_den_level ~ "Population density (in 2015 per km2)",
+                                      HDI_I = "Sub-national Human Development Index – Income score", 
+                                      Ill_rate_level ~ "Percentage illiteracy (30 to 59 years old in 2010)",
+                                      Votes ~ "Percentage of votes for former President Bolsonaro (in 2018)",
+                                      NGO_p ~ "Presence of registered environmental non-profit entities",
+                                      Ag_ass ~ "Percentage of agricultural establishments with access to technical assistance (in 2017)"),
+
+                         statistic = list(all_continuous() ~ "{mean} ({sd})")) %>%
+  italicize_levels() 
+
+tab2SDME
+```
+
+# Model with with iid for municipalities # 
+
+The next step involves building a statistical model to assess the impact of various factors on the likelihood of forest restoration. We use a Bayesian hierarchical model with a random effect for municipalities, implemented through the INLA package.
+
+```{r, eval=T}
+### The model (with iid for municipalities) ###
+model_1_function <- function(DF) {
+  start_time <- Sys.time()
+
+  Global_model_1 <-
+    inla(
+      PCT_01 ~ fm_vh_m_cat + cat_nh_m_level + For_p_10_level + Wat_01 + Defor_ss + FM_class  + Elev_01 + Elev_sd_level + Slope_01 +
+                       Rd_dis_level + Trl_time_level + For_pract_level + Pop_den_level  + HDI_I_ss +  Ill_rate_level + Votes_ss + NGO_p + Ag_ass +
+        f(ADM2_cd, model = "iid"),
+      control.compute = list(dic = TRUE, waic = TRUE),
+      family = "binomial",
+      data = DF
+    )
+  end_time <- Sys.time()
+  print(end_time - start_time)
+
+  return(Global_model_1)
+}
+
+# Run model 
+Global_model_1 <- model_1_function(Farm_rest)
+```
+
+*Fixed effects results*
+
+After running the model, we extract and present the fixed effects results. The estimates are initially provided in log-odds, which we then convert to odds ratios to facilitate interpretation. The results are displayed as the odds of restoration associated with each variable, along with 95% credibility intervals.
+
+```{r}
+# Fixed effects 
+round(Global_model_1$summary.fixed, 2)
+```
+
+```{r, echo=FALSE, include=F}
+# Convert from log-odds to odds 
+model_1_res <-
+  data.frame(
+    Variable = row.names(Global_model_1$summary.fixed),
+    Odds = exp(Global_model_1$summary.fixed$mean),
+    Lower = exp(Global_model_1$summary.fixed$`0.025quant`),
+    Upper = exp(Global_model_1$summary.fixed$`0.975quant`),
+    Var_t = "Result"
+  )
+```
+
+```{r, echo=FALSE, include=F}
+# Run function on main analysis 
+model_1_res <- plot_prep_f(model_1_res)
+
+# Plot the model 
+p_main <- plot_do_f(model_res = model_1_res)
+                  
+# Save
+ggsave("Fig_results1.png", plot = p_main,
+       width = 6.5, height = 4, dpi = 500,
+       bg = "white")
+
+ggsave("Fig_results1.eps", plot = p_main,
+       width = 6.5, height = 4, dpi = 500,
+       bg = "white")
+
+```
+
+We visualize the model results using custom plotting functions to generate figures that illustrate the odds ratios and their credibility intervals for each variable
+
+```{r,  fig.width = 6.5, fig.height = 4, dpi=500}
+p_main 
+```
+
+Next, we examine the precision of the model's hyperparameters and calculate the variance components. The precision of the random effects for municipalities is assessed, and the inverse of this precision is calculated to obtain the variance. This variance is important for understanding the contribution of the random effects to the overall model.
+
+```{r}
+### Examine the precision and variance
+# Precision
+prec_1 <- Global_model_1$summary.hyperpar
+round(prec_1, 3)
+```
+
+```{r}
+# Variance
+var_2 <- 1/prec_1
+round(var_2,3)
+```
+
+```{r}
+### Calculate the proportion of the variance explained by the spatial component ###
+# Pages 185 and 186 of Spatial and Spatio-temporal Bayesian Models with R - INLA
+Nareas <- nrow(Global_model_1$summary.random$ADM2_cd)
+
+mat.marg <- matrix(NA, nrow=Nareas, ncol=100000)
+m <- Global_model_1$marginals.random$ADM2_cd
+for (i in 1:Nareas){
+  u <- m[[i]]
+  mat.marg[i,] <- inla.rmarginal(100000, u)
+}
+
+var.u <- apply(mat.marg, 2, var)
+var.v <- inla.rmarginal(100000, inla.tmarginal(function(x) 1/x, Global_model_1$marginals.hyper$`Precision for ADM2_cd`))
+perc.var.u_2 <- mean(var.u/(var.u+var.v))*100
+```
+
+The proportion of the variance explained by the random effect is `r round(perc.var.u_2, 2)`. 
+
+# Model with with iid for municipalities on sub-sets by farm size # 
+
+To further explore the relationship between farm size and the likelihood of restoration, we subset the data by farm size (small, medium, large) and rerun the model for each subset. This allows us to assess how the effects of the explanatory variables vary across different farm sizes.
+
+```{r, eval=T}
+### The model (with iid for municipalities) ### 
+Farm_rest_small <- Farm_rest[which(Farm_rest$FM_class == "Small Property"),]
+Farm_rest_medium <- Farm_rest[which(Farm_rest$FM_class == "Medium Property"),]
+Farm_rest_large <- Farm_rest[which(Farm_rest$FM_class == "Large Property"),]
+
+### Model 1, without farm size
+model_1_sz_function <- function(DF) {
+  start_time <- Sys.time()
+
+  Global_model_1 <-
+    inla(
+      PCT_01 ~ fm_vh_m_cat + cat_nh_m_level + For_p_10_level + Wat_01 + Defor_ss   + Elev_01 + Elev_sd_level + Slope_01 +
+                       Rd_dis_level + Trl_time_level + For_pract_level + Pop_den_level + HDI_I_ss + Ill_rate_level + Votes_ss + NGO_p + Ag_ass +
+        f(ADM2_cd, model = "iid"),
+      control.compute = list(dic = TRUE, waic = TRUE),
+      family = "binomial",
+      data = DF
+    )
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  return(Global_model_1)
+}
+
+# Run model 
+Global_model_1_sm <- model_1_sz_function(Farm_rest_small)
+Global_model_1_md <- model_1_sz_function(Farm_rest_medium)
+Global_model_1_lg <- model_1_sz_function(Farm_rest_large)
+
+```
+
+```{r, echo=FALSE, include=F}
+# Convert from log-odds to odds 
+# Small
+model_1_sm_res <-
+  data.frame(
+    Variable = row.names(Global_model_1_sm$summary.fixed),
+    Odds = exp(Global_model_1_sm$summary.fixed$mean),
+    Lower = exp(Global_model_1_sm$summary.fixed$`0.025quant`),
+    Upper = exp(Global_model_1_sm$summary.fixed$`0.975quant`),
+    Var_t = "Result"
+  )
+
+# Medium
+model_1_md_res <-
+  data.frame(
+    Variable = row.names(Global_model_1_md$summary.fixed),
+    Odds = exp(Global_model_1_md$summary.fixed$mean),
+    Lower = exp(Global_model_1_md$summary.fixed$`0.025quant`),
+    Upper = exp(Global_model_1_md$summary.fixed$`0.975quant`),
+    Var_t = "Result"
+  )
+
+# Large
+model_1_lg_res <-
+  data.frame(
+    Variable = row.names(Global_model_1_lg$summary.fixed),
+    Odds = exp(Global_model_1_lg$summary.fixed$mean),
+    Lower = exp(Global_model_1_lg$summary.fixed$`0.025quant`),
+    Upper = exp(Global_model_1_lg$summary.fixed$`0.975quant`),
+    Var_t = "Result"
+  )
+
+# Run function on main analysis 
+model_1_sm_res <- plot_prep_f_sz(model_1_sm_res)
+model_1_md_res <- plot_prep_f_sz(model_1_md_res)
+model_1_lg_res <- plot_prep_f_sz(model_1_lg_res)
+
+# Property size 
+model_1_sm_res$Property <- "Small" 
+model_1_md_res$Property <- "Medium" 
+model_1_lg_res$Property <- "Large" 
+
+# Combine 
+model_1_comb_res <- rbind(model_1_sm_res, model_1_md_res, model_1_lg_res)
+
+# Plot 
+p_main_comb <- plot_do_f_sz(model_res = model_1_comb_res)
+
+# Save
+ggsave("Fig_subanaly.png", plot = p_main_comb,
+       width = 6.5, height = 5, dpi = 500,
+       bg = "white")
+
+ggsave("Fig_subanaly.eps", plot = p_main_comb,
+       width = 6.5, height = 5, dpi = 500,
+       bg = "white")
+```
+
+```{r,  fig.width = 6.5, fig.height = 4, dpi=500}
+p_main_comb 
+```
+
+# Statistical analysis results #
+
+```{r, include=F}
+### Odds to percentage change ###
+prob2perchg <- function(odds_ratios) {
+  # Calculate percentage chance based on odds ratio
+  per_change <- (odds_ratios - 1) * 100
+  
+  # Format 
+  per_change <- format(round(per_change, 1), nsmall=1)
+  #per_change <- paste0(per_change, "%")
+
+  
+  return(per_change)
+}
+model_1_percg <- model_1_res
+model_1_percg[c("Odds","Lower", "Upper")] <- sapply(model_1_percg[c("Odds","Lower", "Upper")], prob2perchg)
+
+rownames(model_1_percg) <- c(seq(1, nrow(model_1_percg), 1))
+
+# As number
+model_1_percg$Odds <- as.numeric(model_1_percg$Odds)
+model_1_percg$Upper <- as.numeric(model_1_percg$Upper)
+model_1_percg$Lower <- as.numeric(model_1_percg$Lower)
+```
+
+Next, let's examine the results of the main text model, converting from odds to percentage change.
+
+```{r}
+print(model_1_percg[,-5:-6])
+```
+
+```{r, include=F}
+### Odds to percentage change for sub-models ###
+# Small
+model_1_sm_percg <- model_1_sm_res
+model_1_sm_percg[c("Odds","Lower", "Upper")] <- sapply(model_1_sm_percg[c("Odds","Lower", "Upper")], prob2perchg)
+
+# Large
+model_1_lg_percg <- model_1_lg_res
+model_1_lg_percg[c("Odds","Lower", "Upper")] <- sapply(model_1_lg_percg[c("Odds","Lower", "Upper")], prob2perchg)
+
+# row names
+rownames(model_1_sm_percg) <- c(seq(1, nrow(model_1_sm_percg), 1))
+rownames(model_1_lg_percg) <- c(seq(1, nrow(model_1_lg_percg), 1))
+```
+
+We can also examine the results of the model with just small properties.  
+
+```{r}
+print(model_1_sm_percg[,-5:-6])
+```
+
+And finally, examine the results of the model with the large properties.
+
+```{r}
+print(model_1_lg_percg[,-5:-6])
+```
+
+# Supplimentary analysis #
+
+**Excluding HDI-income**
+
+```{r, eval=T}
+### The model (with iid for municipalities) ###
+model_1_function <- function(DF) {
+  start_time <- Sys.time()
+
+  Global_model_1 <-
+    inla(
+      PCT_01 ~ fm_vh_m_cat + cat_nh_m_level + For_p_10_level + Wat_01 + Defor_ss + FM_class  + Elev_01 + Elev_sd_level + Slope_01 +
+                       Rd_dis_level + Trl_time_level + For_pract_level + Pop_den_level   +  Ill_rate_level + Votes_ss + NGO_p + Ag_ass +
+        f(ADM2_cd, model = "iid"),
+      control.compute = list(dic = TRUE, waic = TRUE),
+      family = "binomial",
+      data = DF
+    )
+  end_time <- Sys.time()
+  print(end_time - start_time)
+
+  return(Global_model_1)
+}
+
+# Run model 
+Global_model_1 <- model_1_function(Farm_rest)
+```
+
+```{r, echo=FALSE, include=F}
+# Convert from log-odds to odds 
+model_1_res <-
+  data.frame(
+    Variable = row.names(Global_model_1$summary.fixed),
+    Odds = exp(Global_model_1$summary.fixed$mean),
+    Lower = exp(Global_model_1$summary.fixed$`0.025quant`),
+    Upper = exp(Global_model_1$summary.fixed$`0.975quant`),
+    Var_t = "Result"
+  )
+```
+
+```{r, echo=FALSE, include=F}
+# Run function on main analysis 
+model_1_res <- plot_prep_f_HDI(model_1_res)
+
+# Plot the model 
+p_main <- plot_do_f_HDI(model_res = model_1_res)
+                  
+# Save
+ggsave("Fig_HDI.png", plot = p_main,
+       width = 6.5, height = 4, dpi = 500,
+       bg = "white")
+
+ggsave("Fig_HDI.eps", plot = p_main,
+       width = 6.5, height = 4, dpi = 500,
+       bg = "white")
+
+```
+
+```{r,  fig.width = 6.5, fig.height = 4, dpi=500}
+p_main 
+```
+
+**Coefficient estimates depending on ratios**
+
+```{r, eval=FALSE}
+### Function to sample data ###
+rand_sub_fun <- function(input, rat) {
+
+  # Restoration observations
+  Farm_rest_bal_1 <- input[which(input$PCT_01 == 1),]
+
+  # Random sample of non-restoration observations
+  Farm_rest_bal_big <- input[which(input$PCT_01 == 0),]
+  Farm_rest_bal_0 <- dplyr::sample_n(Farm_rest_bal_big, (nrow(Farm_rest_bal_1)*rat),
+                                     replace = FALSE)
+
+  # Combine
+  Farm_rest_bal_t <- rbind(Farm_rest_bal_1, Farm_rest_bal_0)
+
+  # Return
+  return(Farm_rest_bal_t)
+}
+
+### Ratio test datasets ###
+runs <- 10 # number of ratios
+
+# Calculating equal ratio jumps
+prop <- prop.table(table(Farm_rest$PCT_01))
+muliples <- floor(prop[1]/ prop[2])
+rat_seqs <- round(c(seq(1,9,1), seq(10, muliples, muliples/(runs-1)), muliples))
+
+# Run the model across all ratio datasets
+model_runs <- list()
+for (i in seq_along(1:length(rat_seqs))) {
+  temp_df <- rand_sub_fun(Farm_rest, rat_seqs[[i]])
+  model_runs[[i]] <- model_1_function(temp_df)
+}
+
+# Extract the results from each test and convert to nice labels
+model_res_lst <- list()
+for (i in seq_along(1:length(model_runs))){
+  model_res_lst[[i]] <- data.frame(
+    Variable = row.names(model_runs[[i]]$summary.fixed),
+    Odds = exp(model_runs[[i]]$summary.fixed$mean),
+    Upper = exp(model_runs[[i]]$summary.fixed$`0.025quant`),
+    Lower = exp(model_runs[[i]]$summary.fixed$`0.975quant`),
+    Model = i)
+
+  # Convert to nice labels
+  model_res_lst[[i]] <- plot_prep_f_comb(model_res_lst[[i]])
+}
+
+# Combine into a single df
+model_res_df <- do.call(rbind, model_res_lst)
+
+# plot
+p_comb_2 <- plot_do_f_comb(model_res_df)
+
+```
+
+```{r,  fig.width = 8, fig.height = 10, dpi=500, echo=F, eval=FALSE}
+# Save
+ggsave("Fig_SI_1.png", plot = p_comb_2,
+       width = 8, height = 8, dpi = 500,
+       bg = "white")
+
+ggsave("Fig_SI_1.eps", plot = p_comb_2,
+       width = 8, height = 8, dpi = 500,
+       bg = "white")
+```
+
+```{r,  fig.width = 8, fig.height = 10, dpi=500}
+p_comb_2 
+```
+
+**Correct prediction of 1's depending on ratios**
+
+```{r, eval=T}
+### Function that splits by group ###
+split_group <- function(df, group_column) {
+  stopifnot(group_column %in% colnames(df))
+  split(df, df[[group_column]])
+}
+
+### Function to check and modify the matrix ###
+check_and_modify_matrix <- function(mat) {
+  if (is.matrix(mat) && all(dim(mat) == c(2, 2))) {
+    return(mat)
+  } else {
+    extra_column <- matrix(0, nrow = nrow(mat), ncol = 1)
+    modified_matrix <- cbind(mat, extra_column)
+    colnames(modified_matrix)[ncol(modified_matrix)] <- "1"
+    return(modified_matrix)
+  }
+}
+
+### K-fold block cross-validation function ###
+# Blocking by municipality
+# Following https://medium.com/@aspengulley/write-an-r-function-to-implement-k-fold-cross-validation-ff9d92e97ce3
+CV_func_block <- function(dats, n.folds) {
+  # Splits data frame
+  dats_split <- split_group(dats, "ADM2_cd")
+
+  # Objects for storing folds and results
+  folds <- list()
+  results <- list()
+
+  # Define fold sizes
+  fold.size <- length(dats_split) / n.folds
+  remain <- 1:length(dats_split)
+
+  # Randomly sample “fold_size” from remain
+  for (i in 1:n.folds) {
+    select <- sample(remain, fold.size, replace = FALSE)
+    folds[[i]] <- select # store indices
+    # Write a special statement for the last fold — if there are ‘leftover points’
+    if (i == n.folds) {
+      folds[[i]] <- remain
+    }
+
+    # update remaining indices to reflect what was taken out
+    remain <- setdiff(remain, select)
+  }
+
+  # Run the model for the folds
+  for (i in 1:n.folds) {
+    # fold i
+    indis <- folds[[i]] # unpack into a vector
+
+    # split into train and test sets based on municipality block
+    train_lst <- dats_split[-c(indis)]
+    test_lst <- dats_split[c(indis)]
+
+    # Combine the data in the training and test municipalities into two datasets
+    train <- do.call(rbind, train_lst)
+    test <- do.call(rbind, test_lst)
+
+    # Store the true observations in the test data
+    test_org <- test
+
+    # Identify training and test data
+    train$Fit <- "Fit"
+    test$Fit <- "Predict"
+
+    # Convert values to NA in the test data
+    test$PCT_01  <- NA
+
+    # Combine the train and test (as required to make predictions in INLA)
+    data_combined <- rbind(train, test)
+
+    # Rerun INLA - following https://www.r-inla.org/faq#h.821k2r53fvx3
+    inla_model <-
+      inla(
+        PCT_01 ~ fm_vh_m_cat + cat_nh_m_level + For_p_10_level + Wat_01 + Defor_ss   + Elev_01 + Elev_sd_level + Slope_01 +
+                       Rd_dis_level + Trl_time_level + For_pract_level + Pop_den_level + HDI_I_ss + Ill_rate_level + Votes_ss + NGO_p + Ag_ass + f(ADM2_cd, model = "iid"),
+        control.compute = list(dic = TRUE, waic = TRUE),
+        control.predictor = list(link = 1, compute = T),
+        family = "binomial",
+        data = data_combined)
+
+    # Extract the fitted values
+    data_combined$Fit_val <- inla_model$summary.fitted.values[, "mean"]
+
+    # The fitted values for the predicted data
+    pred <- data_combined[which(data_combined$Fit ==  "Predict"), ]$Fit_val
+
+    # Calculate the accuracy - following https://remiller1450.github.io/s230f19/caret2.html
+    pred_cat <- ifelse(pred > .5, 1, 0)
+
+    # Confusion matrix
+    confusion_matrix <- table(Actual = test_org$PCT_01, Predicted = pred_cat)
+    overall_accuracy <- sum(test_org$PCT_01 == pred_cat) / length(test_org$PCT_01)
+    results[[i]] <- list(confusion_matrix, overall_accuracy)
+  }
+  return(results)
+}
+
+### Calculate the overall accruacy and accuracy for correctly predicting 1's
+cv_result_fun <- function(DF) {
+  # Run the CV
+  cv_out <- CV_func_block(DF, 10) # 10-folds
+
+  # Average CV
+  average_accuracy <- mean(do.call(rbind, lapply(cv_out, function(x) (x[[2]]))))*100
+
+  # How accurately do we predict the occurrence of 1's
+  result <- list()
+  for (i in seq_along(1:length(cv_out))) {
+    result_temp <- cv_out[[i]][[1]]
+    result[[i]] <- result_temp[4] / (result_temp[4] + result_temp[2])
+    result[[i]] <- result[[i]] * 100
+  }
+
+  # Average accuracy at predicting 1's
+  average_one_accuracy <- mean(do.call(rbind, result))
+
+  # output
+  output <- data.frame(av_acc = average_accuracy, av_1_acc = average_one_accuracy)
+  return(output)
+}
+
+### Run both functions ###
+# Number of ratios
+runs <- 10
+
+# Calculating equal ratio jumps
+prop <- prop.table(table(Farm_rest$PCT_01))
+muliples <- floor(prop[1]/ prop[2])
+rat_seqs <- round(c(seq(1,9,1), seq(10, muliples, muliples/(runs-1)), muliples))
+
+### Run the cv model across all ratio datasets (with a trycatch) ###
+acc_lst  <- list()
+for (i in seq_along(1:length(rat_seqs))) {
+  print(i)
+
+  tryCatch({
+    temp_df <- rand_sub_fun(Farm_rest, rat_seqs[[i]])
+    acc_lst[[i]] <- cv_result_fun(temp_df)
+  }, error = function(e) {
+    # Handle the error, you can print a message or take other actions
+    cat("Error in iteration", i, ":", conditionMessage(e), "\n")
+    # Move to the next iteration
+    next
+  })
+}
+
+```
+
+```{r}
+# rbind
+acc_df <- do.call(rbind, acc_lst)
+acc_df$Ratio <- rat_seqs
+
+# Rename
+acc_df <- acc_df %>%
+  rename(`Average accuracy (%)` = av_acc, `Average true-positive accuracy (%)` = av_1_acc)
+
+acc_df <- round(acc_df, 1)
+
+knitr::kable(acc_df, format="markdown")
+```
+
+Further  more, the k-fold cross validation repeated with the under sampled data (using a 1:1 ratio of the minority and majority classes) correctly predicted engagement `r paste0(round(acc_lst[[1]][2], 1), "%")` of the time, with an overall predictive accuracy of `r paste0(round(acc_lst[[1]][1], 1), "%")`.
